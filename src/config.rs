@@ -727,9 +727,10 @@ impl Config {
             // \\ServerName\pipe\PipeName
             // where ServerName is either the name of a remote computer or a period, to specify the local computer.
             // https://docs.microsoft.com/en-us/windows/win32/ipc/pipe-names
+            // Spaces removed from pipe name to avoid ACL issues between service and user processes
             format!(
                 "\\\\.\\pipe\\{}\\query{}",
-                *APP_NAME.read().unwrap(),
+                APP_NAME.read().unwrap().replace(" ", ""),
                 postfix
             )
         }

@@ -469,6 +469,7 @@ pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHand
     logger_holder
 }
 
+// Legacy structs kept for compatibility
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub struct VersionCheckRequest {
     #[serde(default)]
@@ -492,6 +493,32 @@ pub struct VersionCheckResponse {
 pub const VER_TYPE_RUSTDESK_CLIENT: &str = "rustdesk-client";
 pub const VER_TYPE_RUSTDESK_SERVER: &str = "rustdesk-server";
 
+/// GitHub Releases API URL for version checking
+pub const GITHUB_RELEASES_API_URL: &str =
+    "https://api.github.com/repos/Hanasis-Platform/hanadesk-community/releases/latest";
+
+/// GitHub Releases API response (subset of fields we need)
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub struct GitHubRelease {
+    #[serde(default)]
+    pub tag_name: String,
+    #[serde(default)]
+    pub html_url: String,
+    #[serde(default)]
+    pub assets: Vec<GitHubAsset>,
+}
+
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
+pub struct GitHubAsset {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub browser_download_url: String,
+    #[serde(default)]
+    pub size: u64,
+}
+
+#[deprecated(note = "Use GITHUB_RELEASES_API_URL and do_check_software_update() directly")]
 pub fn version_check_request(typ: String) -> (VersionCheckRequest, String) {
     const URL: &str = "https://api.rustdesk.com/version/latest";
 
