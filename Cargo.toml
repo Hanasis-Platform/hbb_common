@@ -87,6 +87,10 @@ winapi = { version = "0.3", features = [
     "pdh",
     "memoryapi",
     "sysinfoapi",
+    "iptypes",
+    "iphlpapi",
+    "ifdef",
+    "winerror",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

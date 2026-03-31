@@ -58,7 +58,7 @@ lazy_static::lazy_static! {
     static ref ONLINE: Mutex<HashMap<String, i64>> = Default::default();
     pub static ref PROD_RENDEZVOUS_SERVER: RwLock<String> = RwLock::new("".to_owned());
     pub static ref EXE_RENDEZVOUS_SERVER: RwLock<String> = Default::default();
-    pub static ref APP_NAME: RwLock<String> = RwLock::new("HanaDesk Community".to_owned());
+    pub static ref APP_NAME: RwLock<String> = RwLock::new("HanaDesk".to_owned());
     static ref KEY_PAIR: Mutex<Option<KeyPair>> = Default::default();
     static ref USER_DEFAULT_CONFIG: RwLock<(UserDefaultConfig, Instant)> = RwLock::new((UserDefaultConfig::load(), Instant::now()));
     pub static ref NEW_STORED_PEER_CONFIG: Mutex<HashSet<String>> = Default::default();
@@ -902,29 +902,143 @@ impl Config {
         }
     }
 
+    /// MAC 주소 바이트로부터 ID를 계산한다.
+    fn mac_bytes_to_id(bytes: &[u8]) -> u32 {
+        let mut id = 0u32;
+        for x in &bytes[2..] {
+            id = (id << 8) | (*x as u32);
+        }
+        id & 0x1FFFFFFF
+    }
+
+    /// Windows: GetAdaptersAddresses API로 유선(Ethernet) NIC 우선,
+    /// 이름 순서가 가장 빠른 어댑터의 MAC 주소를 반환한다.
+    /// 유선이 없으면 무선(WiFi) 중 이름 순서가 가장 빠른 것을 사용한다.
+    #[cfg(target_os = "windows")]
+    fn get_preferred_mac() -> Option<[u8; 6]> {
+        use std::ptr::null_mut;
+        use winapi::shared::ifdef::IfOperStatusUp;
+        use winapi::shared::winerror::ERROR_BUFFER_OVERFLOW;
+        use winapi::um::iphlpapi::GetAdaptersAddresses;
+        use winapi::um::iptypes::{
+            GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_DNS_SERVER, GAA_FLAG_SKIP_MULTICAST,
+            IP_ADAPTER_ADDRESSES_LH,
+        };
+        // IANA ifType: Ethernet CSMA/CD = 6, IEEE 802.11 (WiFi) = 71
+        const IF_TYPE_ETHERNET_CSMACD: u32 = 6;
+        const IF_TYPE_IEEE80211: u32 = 71;
+
+        let flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
+        let family = 0u32; // AF_UNSPEC
+
+        // 필요한 버퍼 크기를 먼저 조회
+        let mut buf_len = 0u32;
+        let ret = unsafe {
+            GetAdaptersAddresses(family, flags, null_mut(), null_mut(), &mut buf_len)
+        };
+        if ret != ERROR_BUFFER_OVERFLOW {
+            log::warn!("GetAdaptersAddresses sizing failed: {}", ret);
+            return None;
+        }
+
+        let mut buf = vec![0u8; buf_len as usize];
+        let ret = unsafe {
+            GetAdaptersAddresses(
+                family,
+                flags,
+                null_mut(),
+                buf.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH,
+                &mut buf_len,
+            )
+        };
+        if ret != 0 {
+            log::warn!("GetAdaptersAddresses failed: {}", ret);
+            return None;
+        }
+
+        struct NicInfo {
+            name: String,
+            mac: [u8; 6],
+            is_ethernet: bool,
+        }
+
+        let mut nics = Vec::new();
+        let mut adapter = buf.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
+        while !adapter.is_null() {
+            let a = unsafe { &*adapter };
+
+            // 활성 상태 + MAC 주소 6바이트인 어댑터만
+            if a.OperStatus == IfOperStatusUp && a.PhysicalAddressLength == 6 {
+                let mac_bytes = a.PhysicalAddress;
+                // 00:00:00:00:00:00 제외
+                if mac_bytes[..6].iter().any(|b| *b != 0) {
+                    let is_ethernet = a.IfType == IF_TYPE_ETHERNET_CSMACD;
+                    let is_wifi = a.IfType == IF_TYPE_IEEE80211;
+
+                    if is_ethernet || is_wifi {
+                        let name = unsafe {
+                            let ptr = a.FriendlyName;
+                            let mut len = 0;
+                            while *ptr.add(len) != 0 {
+                                len += 1;
+                            }
+                            String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len))
+                        };
+                        let mut mac = [0u8; 6];
+                        mac.copy_from_slice(&mac_bytes[..6]);
+                        nics.push(NicInfo {
+                            name,
+                            mac,
+                            is_ethernet,
+                        });
+                    }
+                }
+            }
+            adapter = unsafe { (*adapter).Next };
+        }
+
+        if nics.is_empty() {
+            return None;
+        }
+
+        // 유선 우선, 같은 타입 내에서 이름 순서가 빠른 것
+        nics.sort_by(|a, b| {
+            b.is_ethernet.cmp(&a.is_ethernet).then(a.name.cmp(&b.name))
+        });
+
+        let selected = &nics[0];
+        log::info!(
+            "Selected NIC for ID: \"{}\" ({}), MAC: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+            selected.name,
+            if selected.is_ethernet { "Ethernet" } else { "WiFi" },
+            selected.mac[0], selected.mac[1], selected.mac[2],
+            selected.mac[3], selected.mac[4], selected.mac[5]
+        );
+        Some(selected.mac)
+    }
+
+    /// Windows 이외 플랫폼: mac_address 크레이트 사용
+    #[cfg(not(target_os = "windows"))]
+    fn get_preferred_mac() -> Option<[u8; 6]> {
+        if let Ok(Some(ma)) = mac_address::get_mac_address() {
+            Some(ma.bytes())
+        } else {
+            None
+        }
+    }
+
     fn get_auto_id() -> Option<String> {
-        #[cfg(any(target_os = "android", target_os = "ios"))]
-        {
-            return Some(
+        if let Some(mac) = Self::get_preferred_mac() {
+            let id = Self::mac_bytes_to_id(&mac);
+            log::info!("Generated id {} from MAC", id);
+            Some(id.to_string())
+        } else {
+            log::warn!("No MAC address found, generating random id");
+            Some(
                 rand::thread_rng()
                     .gen_range(1_000_000_000..2_000_000_000)
                     .to_string(),
-            );
-        }
-
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        {
-            let mut id = 0u32;
-            if let Ok(Some(ma)) = mac_address::get_mac_address() {
-                for x in &ma.bytes()[2..] {
-                    id = (id << 8) | (*x as u32);
-                }
-                id &= 0x1FFFFFFF;
-                log::info!("Generated id {}", id);
-                Some(id.to_string())
-            } else {
-                None
-            }
+            )
         }
     }
 
@@ -1062,6 +1176,15 @@ impl Config {
             if let Some(tmp) = Config::gen_id() {
                 id = tmp;
                 Config::set_id(&id);
+            }
+        } else {
+            // HDD 복제 환경 대응: MAC 주소 기반 ID와 저장된 ID가 다르면 갱신
+            if let Some(mac_id) = Config::get_auto_id() {
+                if id != mac_id {
+                    log::info!("ID mismatch (stored={}, mac-based={}), updating to mac-based", id, mac_id);
+                    id = mac_id;
+                    Config::set_id(&id);
+                }
             }
         }
         id
@@ -2082,7 +2205,7 @@ impl UserDefaultConfig {
             #[cfg(any(target_os = "android", target_os = "ios"))]
             keys::OPTION_VIEW_STYLE => self.get_string(key, "adaptive", vec!["original"]),
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
-            keys::OPTION_VIEW_STYLE => self.get_string(key, "original", vec!["adaptive"]),
+            keys::OPTION_VIEW_STYLE => self.get_string(key, "adaptive", vec!["original"]),
             keys::OPTION_SCROLL_STYLE => {
                 self.get_string(key, "scrollauto", vec!["scrolledge", "scrollbar"])
             }
