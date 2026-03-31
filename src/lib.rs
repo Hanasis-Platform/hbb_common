@@ -493,9 +493,9 @@ pub struct VersionCheckResponse {
 pub const VER_TYPE_RUSTDESK_CLIENT: &str = "rustdesk-client";
 pub const VER_TYPE_RUSTDESK_SERVER: &str = "rustdesk-server";
 
-/// GitHub Releases API URL for version checking
-pub const GITHUB_RELEASES_API_URL: &str =
-    "https://api.github.com/repos/Hanasis-Platform/hanadesk-community/releases/latest";
+// GITHUB_RELEASES_API_URL은 삭제됨.
+// 업데이트 URL은 .build.env의 UPDATE_URL에서 빌드 시점에 주입되며,
+// hanadesk-community/src/common.rs에서 env!("UPDATE_URL")로 참조한다.
 
 /// GitHub Releases API response (subset of fields we need)
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -518,7 +518,7 @@ pub struct GitHubAsset {
     pub size: u64,
 }
 
-#[deprecated(note = "Use GITHUB_RELEASES_API_URL and do_check_software_update() directly")]
+#[deprecated(note = "Use env!(\"UPDATE_URL\") and do_check_software_update() directly")]
 pub fn version_check_request(typ: String) -> (VersionCheckRequest, String) {
     const URL: &str = "https://api.rustdesk.com/version/latest";
 
