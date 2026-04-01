@@ -984,6 +984,31 @@ impl Config {
                             }
                             String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len))
                         };
+                        let description = unsafe {
+                            let ptr = a.Description;
+                            let mut len = 0;
+                            while *ptr.add(len) != 0 {
+                                len += 1;
+                            }
+                            String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len))
+                        };
+
+                        // 가상 어댑터 제외 (VMware, VirtualBox, Hyper-V, TAP, Docker 등)
+                        let desc_lower = description.to_lowercase();
+                        let is_virtual = desc_lower.contains("vmware")
+                            || desc_lower.contains("virtualbox")
+                            || desc_lower.contains("hyper-v")
+                            || desc_lower.contains("virtual")
+                            || desc_lower.contains("tap-windows")
+                            || desc_lower.contains("docker")
+                            || desc_lower.contains("wsl")
+                            || desc_lower.contains("vpn");
+                        if is_virtual {
+                            log::debug!("Skipping virtual adapter: \"{}\" ({})", name, description);
+                            adapter = unsafe { (*adapter).Next };
+                            continue;
+                        }
+
                         let mut mac = [0u8; 6];
                         mac.copy_from_slice(&mac_bytes[..6]);
                         nics.push(NicInfo {
