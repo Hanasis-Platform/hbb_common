@@ -127,6 +127,7 @@ message PunchHoleResponse {
   bool is_udp = 9;
   int32 upnp_port = 10;
   bytes socket_addr_v6 = 11;
+  repeated bytes local_addrs = 12;  // B의 모든 사설 IP 후보 (같은 LAN 직접 연결용)
 }
 
 message ConfigUpdate {
@@ -181,6 +182,7 @@ message LocalAddr {
   string id = 4;
   string version = 5;
   bytes socket_addr_v6 = 6;
+  repeated bytes local_addrs = 7;  // 모든 사설 IP 후보 (같은 LAN 직접 연결용)
 }
 
 message PeerDiscovery {
