@@ -493,29 +493,24 @@ pub struct VersionCheckResponse {
 pub const VER_TYPE_RUSTDESK_CLIENT: &str = "rustdesk-client";
 pub const VER_TYPE_RUSTDESK_SERVER: &str = "rustdesk-server";
 
-// GITHUB_RELEASES_API_URL은 삭제됨.
 // 업데이트 URL은 .build.env의 UPDATE_URL에서 빌드 시점에 주입되며,
 // hanadesk-community/src/common.rs에서 env!("UPDATE_URL")로 참조한다.
+// R2의 latest.json 형식:
+// {
+//   "version": "1.4.7",
+//   "url": "https://cdn.hanaesp.com/installer/HanaDesk/1.4.7/",
+//   "changelog": "변경사항 설명"
+// }
 
-/// GitHub Releases API response (subset of fields we need)
+/// 업데이트 정보 JSON 응답 (Cloudflare R2 latest.json)
 #[derive(Debug, Default, Deserialize, Serialize)]
-pub struct GitHubRelease {
+pub struct UpdateInfo {
     #[serde(default)]
-    pub tag_name: String,
+    pub version: String,
     #[serde(default)]
-    pub html_url: String,
+    pub url: String,
     #[serde(default)]
-    pub assets: Vec<GitHubAsset>,
-}
-
-#[derive(Debug, Default, Clone, Deserialize, Serialize)]
-pub struct GitHubAsset {
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub browser_download_url: String,
-    #[serde(default)]
-    pub size: u64,
+    pub changelog: String,
 }
 
 #[deprecated(note = "Use env!(\"UPDATE_URL\") and do_check_software_update() directly")]
